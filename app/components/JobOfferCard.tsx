@@ -1,11 +1,11 @@
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { Dimensions, Pressable, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import { Dimensions, Pressable, Text, TouchableOpacity, Vibration, View } from 'react-native';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
 const { width, height } = Dimensions.get('window');
 
-// Interface based on OfertaFeedResponse
 interface JobOfferCardProps {
   job: {
     id: number;
@@ -33,22 +33,66 @@ interface JobOfferCardProps {
 const JobOfferCard: React.FC<JobOfferCardProps> = ({ job, likes, superLikes, onLike, onSuperLike, onReject }) => {
   const router = useRouter();
 
+  // Animation states for superlike button
+  const scale = useSharedValue(1); // Scale for the button
+  const starOpacity = useSharedValue(0); // Opacity for star burst
+  const starScale = useSharedValue(0); // Scale for star burst
+  const [isSuperLiking, setIsSuperLiking] = useState(false);
+
+  // Animated styles
+  const superLikeAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const starAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: starOpacity.value,
+    transform: [{ scale: starScale.value }],
+  }));
+
+  // Animation trigger function
+  const triggerSuperLikeAnimation = () => {
+    if (superLikes === 0 || isSuperLiking) return;
+
+    setIsSuperLiking(true);
+    Vibration.vibrate(100); // Haptic feedback
+
+    // Button scale animation: compress then bounce
+    scale.value = withSequence(
+      withTiming(0.8, { duration: 150 }),
+      withSpring(1.2, { damping: 10, stiffness: 100 }, () => {
+        scale.value = withSpring(1); // Return to normal
+      })
+    );
+
+    // Star burst animation: appear and scale up
+    starOpacity.value = withTiming(1, { duration: 0 });
+    starScale.value = withSpring(1.5, { damping: 5, stiffness: 80 });
+
+    // Reset animation after 800ms
+    setTimeout(() => {
+      starOpacity.value = withTiming(0, { duration: 500 });
+      starScale.value = withTiming(0, { duration: 200 });
+      setIsSuperLiking(false);
+    }, 800);
+
+    // Call parent onSuperLike (triggers API and swipe in Home.tsx)
+    runOnJS(onSuperLike)();
+  };
+
   return (
     <View 
       className="bg-white rounded-3xl shadow-2xl border border-gray-100 relative overflow-hidden"
       style={{
         width: width * 0.9,
-        height: height * 0.70, // Aumentamos la altura para incluir los botones
+        height: height * 0.70,
         elevation: 20,
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.15,
         shadowRadius: 20,
       }}
     >
-      {/* Background Gradient Effect */}
       <View className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-blue-50 to-transparent opacity-60" />
       
-      {/* Urgent or Featured Badges */}
       <View className="absolute top-6 left-6 right-6 flex-row justify-between z-10">
         {job.destacada && (
           <View className="bg-gradient-to-r from-yellow-400 to-orange-400 rounded-full px-4 py-2 flex-row items-center shadow-lg">
@@ -64,11 +108,8 @@ const JobOfferCard: React.FC<JobOfferCardProps> = ({ job, likes, superLikes, onL
         )}
       </View>
 
-      {/* Main Content Container */}
       <View className="flex-1 p-8 pt-20 justify-between">
-        {/* Header Section */}
         <View>
-          {/* Company Name with Icon */}
           <View className="flex-row items-center mb-4">
             <View className="bg-blue-100 rounded-full p-3 mr-3">
               <Icon name="business" size={24} color="#3B82F6" />
@@ -79,12 +120,10 @@ const JobOfferCard: React.FC<JobOfferCardProps> = ({ job, likes, superLikes, onL
             </View>
           </View>
 
-          {/* Job Title */}
           <Text className="text-3xl font-poppins-bold text-gray-900 mb-6 leading-tight">
             {job.titulo}
           </Text>
 
-          {/* Job Details Grid */}
           <View className="bg-gray-50 rounded-2xl p-5 mb-6">
             <View className="flex-row items-center mb-4">
               <Icon name="location-on" size={20} color="#6B7280" />
@@ -112,15 +151,12 @@ const JobOfferCard: React.FC<JobOfferCardProps> = ({ job, likes, superLikes, onL
           </View>
         </View>
 
-        {/* Footer Section */}
         <View>
-          {/* Publication Time */}
           <View className="flex-row items-center justify-center mb-6">
             <Icon name="access-time" size={16} color="#9CA3AF" />
             <Text className="text-sm font-poppins text-gray-500 ml-2">{job.tiempoPublicacion}</Text>
           </View>
           
-          {/* Details Button */}
           <TouchableOpacity
             onPress={() => router.push(`/companyExtraViews/${job.id}`)}
             className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl py-4 flex-row items-center justify-center shadow-lg mb-6"
@@ -135,14 +171,12 @@ const JobOfferCard: React.FC<JobOfferCardProps> = ({ job, likes, superLikes, onL
             <Text className="text-black font-poppins-bold text-lg ml-3">Ver Detalles</Text>
           </TouchableOpacity>
 
-          {/* Action Buttons */}
           <View style={{
             flexDirection: 'row',
             justifyContent: 'space-around',
             alignItems: 'center',
             paddingBottom: 20,
           }}>
-            {/* Reject Button */}
             <Pressable
               onPress={onReject}
               style={{
@@ -160,10 +194,9 @@ const JobOfferCard: React.FC<JobOfferCardProps> = ({ job, likes, superLikes, onL
               <Icon name="close" size={28} color="#EF4444" />
             </Pressable>
 
-            {/* Super Like Button */}
             <Pressable
-              onPress={onSuperLike}
-              disabled={superLikes === 0}
+              onPress={triggerSuperLikeAnimation}
+              disabled={superLikes === 0 || isSuperLiking}
               style={{
                 backgroundColor: superLikes === 0 ? '#D1D5DB' : '#F59E0B',
                 borderRadius: 35,
@@ -172,12 +205,22 @@ const JobOfferCard: React.FC<JobOfferCardProps> = ({ job, likes, superLikes, onL
                 shadowOffset: { width: 0, height: 5 },
                 shadowOpacity: 0.3,
                 shadowRadius: 12,
+                position: 'relative',
               }}
             >
-              <Icon name="star" size={32} color={superLikes === 0 ? 'gray' : 'white'} />
+              <Animated.View style={[starAnimatedStyle, {
+                position: 'absolute',
+                top: -10, left: -10, right: -10, bottom: -10,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }]}>
+                <Icon name="star" size={60} color="#FFD700" />
+              </Animated.View>
+              <Animated.View style={superLikeAnimatedStyle}>
+                <Icon name="star" size={32} color={superLikes === 0 ? 'gray' : 'white'} />
+              </Animated.View>
             </Pressable>
 
-            {/* Like Button */}
             <Pressable
               onPress={onLike}
               disabled={likes === 0}
@@ -199,7 +242,6 @@ const JobOfferCard: React.FC<JobOfferCardProps> = ({ job, likes, superLikes, onL
         </View>
       </View>
 
-      {/* Swipe Hint */}
       <View className="absolute bottom-4 right-4 bg-black bg-opacity-20 rounded-full p-2">
         <Icon name="swipe" size={20} color="white" />
       </View>
