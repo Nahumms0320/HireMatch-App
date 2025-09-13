@@ -1,7 +1,8 @@
 import { useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Dimensions, Pressable, Text, View } from 'react-native';
+import { Alert, Dimensions, Platform, Pressable, Text, ToastAndroid, View } from 'react-native';
 import Swiper from 'react-native-deck-swiper';
+import Animated, { useSharedValue, withSpring } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import JobOfferCard from '../components/JobOfferCard';
@@ -36,6 +37,18 @@ const Home = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Animation state for superlike button in header
+  const superLikeScale = useSharedValue(1);
+
+  // Cross-platform toast function
+  const showToast = (message: string, duration: number = ToastAndroid.SHORT) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, duration);
+    } else {
+      Alert.alert('HireMatch', message, [{ text: 'OK' }]);
+    }
+  };
 
   // Configurar el header dinámicamente
   useLayoutEffect(() => {
@@ -113,8 +126,8 @@ const Home = () => {
             }}>{likes}</Text>
           </View>
           
-          {/* Super Likes */}
-          <View style={{
+          {/* Super Likes with Animation */}
+          <Animated.View style={{
             backgroundColor: '#F59E0B',
             borderRadius: 20,
             paddingHorizontal: 10,
@@ -129,6 +142,7 @@ const Home = () => {
             shadowRadius: 4,
             minWidth: 55,
             justifyContent: 'center',
+            transform: [{ scale: superLikeScale.value }],  // ← ANIMACIÓN DEL HEADER
           }}>
             <Icon name="star" size={14} color="white" />
             <Text style={{
@@ -137,11 +151,11 @@ const Home = () => {
               fontWeight: 'bold',
               color: 'white'
             }}>{superLikes}</Text>
-          </View>
+          </Animated.View>
         </View>
       ),
     });
-  }, [navigation, likes, superLikes, router]);
+  }, [navigation, likes, superLikes, router, superLikeScale]);
 
   useEffect(() => {
     const fetchJobOffers = async () => {
@@ -152,6 +166,7 @@ const Home = () => {
         setCurrentIndex(0);
       } catch (err) {
         setError((err as Error).message || 'Error al cargar las ofertas');
+        showToast((err as Error).message || 'Error al cargar las ofertas', ToastAndroid.LONG);
       } finally {
         setLoading(false);
       }
@@ -159,117 +174,112 @@ const Home = () => {
     fetchJobOffers();
   }, []);
 
-  // ✅ VALIDAR LIKES ANTES DE PROCESAR EL SWIPE RIGHT
   const handleSwipedRight = async (index: number) => {
     const job = jobOffers[index];
     if (!job) return;
     
-    // ❌ Si no hay likes, revertir la acción y mostrar mensaje
     if (likes <= 0) {
       console.log('No hay likes disponibles');
-      // Opcional: mostrar toast/alerta
-      // Toast.show('No tienes likes disponibles');
-      
-      // Revertir la carta a su posición original
+      showToast('No tienes likes disponibles', ToastAndroid.SHORT);
       if (swiperRef.current) {
-        // Forzar que la carta regrese (esto puede variar según la librería)
-        swiperRef.current.swipeLeft(); // Esto cancela el swipe right
+        swiperRef.current.swipeLeft();
         setTimeout(() => {
           if (swiperRef.current) {
             swiperRef.current.swipeBack();
           }
         }, 100);
       }
-      return; // No continuar con la lógica
+      return;
     }
     
     try {
       await likeJobOffer(job.id);
       setLikes(prev => Math.max(0, prev - 1));
       setCurrentIndex(index + 1);
+      showToast('¡Like enviado!', ToastAndroid.SHORT);
     } catch (error) {
       console.error('Error al dar like:', error);
+      showToast((error as Error).message, ToastAndroid.LONG);
     }
   };
 
   const handleSwipedLeft = (index: number) => {
-    const job = jobOffers[index];
-    if (!job) return;
-    
-    console.log('Oferta descartada:', job.id);
-    setCurrentIndex(index + 1);
-  };
+  const job = jobOffers[index];
+  if (!job) return;
+  
+  console.log('Oferta descartada:', job.id);
+  setCurrentIndex(index + 1);
+};
 
-  // ✅ VALIDAR SUPER LIKES ANTES DE PROCESAR EL SWIPE TOP
-  const handleSwipedTop = async (index: number) => {
-    const job = jobOffers[index];
-    if (!job) return;
+const handleSwipedTop = async (index: number) => {
+  const job = jobOffers[index];
+  if (!job) return;
 
-    // ❌ Si no hay super likes, revertir la acción
-    if (superLikes <= 0) {
-      console.log('No hay super likes disponibles');
-      
-      // Revertir la carta a su posición original
-      if (swiperRef.current) {
-        swiperRef.current.swipeLeft(); // Cancelar el movimiento
-        setTimeout(() => {
-          if (swiperRef.current) {
-            swiperRef.current.swipeBack();
-          }
-        }, 100);
-      }
-      return; // No continuar
-    }
-
-    try {
-      await superLikeJobOffer(job.id);
-      setSuperLikes(prev => Math.max(0, prev - 1));
-      setCurrentIndex(prev => prev + 1);
-    } catch (error) {
-      const errorMessage = (error as Error).message;
-      console.error('Error al dar super like:', errorMessage);
-      if (errorMessage.includes('Límite diario de superlikes')) {
-        //router.push('/store');
-      }
-    }
-  };
-
-  // ✅ MÉTODO ALTERNATIVO: Usar onSwiping para bloquear antes del swipe
-  const handleSwiping = (x: number, y: number) => {
-    // Detectar dirección del swipe
-    const isSwipeRight = x > 50;
-    const isSwipeTop = y < -50;
-    
-    // Bloquear swipe right si no hay likes
-    if (isSwipeRight && likes <= 0) {
-      return false; // Bloquear el swipe
-    }
-    
-    // Bloquear swipe top si no hay super likes
-    if (isSwipeTop && superLikes <= 0) {
-      return false; // Bloquear el swipe
-    }
-    
-    return true; // Permitir el swipe
-  };
-
-  const handleLike = () => {
-    if (likes > 0 && swiperRef.current && currentIndex < jobOffers.length) {
-      swiperRef.current.swipeRight();
-    }
-  };
-
-  const handleSuperLike = async () => {
-    if (superLikes > 0 && swiperRef.current && currentIndex < jobOffers.length) {
-      swiperRef.current.swipeTop();
-    }
-  };
-
-  const handleReject = () => {
-    if (swiperRef.current && currentIndex < jobOffers.length) {
+  if (superLikes <= 0) {
+    console.log('No hay super likes disponibles');
+    showToast('No tienes superlikes disponibles', ToastAndroid.SHORT);
+    if (swiperRef.current) {
       swiperRef.current.swipeLeft();
+      setTimeout(() => {
+        if (swiperRef.current) {  // ← CORREGIDO: Era "iorRef.current)"
+          swiperRef.current.swipeBack();
+        }
+      }, 100);
     }
-  };
+    return;
+  }
+
+  try {
+    // Trigger header animation
+    superLikeScale.value = withSpring(1.2, { damping: 10 }, () => {
+      superLikeScale.value = withSpring(1);
+    });
+    await superLikeJobOffer(job.id);
+    setSuperLikes(prev => Math.max(0, prev - 1));
+    setCurrentIndex(prev => prev + 1);
+    showToast('¡Superlike enviado!', ToastAndroid.SHORT);
+  } catch (error) {
+    const errorMessage = (error as Error).message;
+    console.error('Error al dar super like:', errorMessage);
+    showToast(errorMessage, ToastAndroid.LONG);
+    if (errorMessage.includes('Límite diario de superlikes')) {
+      //router.push('/store');
+    }
+  }
+};
+
+const handleSwiping = (x: number, y: number) => {
+  const isSwipeRight = x > 50;
+  const isSwipeTop = y < -50;
+  
+  if (isSwipeRight && likes <= 0) {
+    return false;
+  }
+  
+  if (isSwipeTop && superLikes <= 0) {
+    return false;
+  }
+  
+  return true;
+};
+
+const handleLike = () => {
+  if (likes > 0 && swiperRef.current && currentIndex < jobOffers.length) {
+    swiperRef.current.swipeRight();
+  }
+};
+
+const handleSuperLike = async () => {
+  if (superLikes > 0 && swiperRef.current && currentIndex < jobOffers.length) {
+    swiperRef.current.swipeTop();
+  }
+};
+
+const handleReject = () => {
+  if (swiperRef.current && currentIndex < jobOffers.length) {
+    swiperRef.current.swipeLeft();
+  }
+};
 
   const getCurrentJob = () => {
     return jobOffers[currentIndex] || null;
@@ -299,7 +309,6 @@ const Home = () => {
     }}
       edges={['right', 'left', 'bottom']}>
       
-      {/* Low Balance Warning */}
       {(likes === 0 && superLikes === 0) && (
         <View style={{
           position: 'absolute',
@@ -361,7 +370,6 @@ const Home = () => {
         </View>
       )}
 
-      {/* Main Card Area */}
       <View style={{ 
         paddingHorizontal: 20,
       }}>
@@ -400,8 +408,7 @@ const Home = () => {
             onSwipedRight={handleSwipedRight}
             onSwipedLeft={handleSwipedLeft}
             onSwipedTop={handleSwipedTop}
-            // ✅ AGREGAR VALIDACIÓN DURANTE EL SWIPE (si la librería lo soporta)
-            // onSwiping={handleSwiping} // Descomenta si tu versión lo soporta
+            onSwiping={handleSwiping}
             backgroundColor="#F8FAFC"
             stackSize={3}
             stackSeparation={15}
@@ -409,9 +416,8 @@ const Home = () => {
             animateOverlayLabelsOpacity
             swipeBackCard
             infinite={false}
-            // ✅ DESHABILITAR SWIPES CUANDO NO HAY RECURSOS
-            disableRightSwipe={likes <= 0} // Bloquea swipe right
-            disableTopSwipe={superLikes <= 0} // Bloquea swipe top
+            disableRightSwipe={likes <= 0}
+            disableTopSwipe={superLikes <= 0}
             overlayLabels={{
               left: {
                 title: 'Dislike',
@@ -457,7 +463,6 @@ const Home = () => {
         )}
       </View>
 
-      {/* Achievement/Match Notification Area */}
       <View style={{
         position: 'absolute',
         top: 80,
